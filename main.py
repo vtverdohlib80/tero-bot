@@ -1,198 +1,130 @@
-import os
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters,
-)
-from flask import Flask, request
 import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+    CallbackQueryHandler,
+)
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 
-TOKEN = "7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q"
-WEBHOOK_URL = "https://tero-bot-33.onrender.com"
+logger = logging.getLogger(__name__)
 
-# Flask app
-flask_app = Flask(__name__)
-
-# Стадії ConversationHandler
+# Стадії розмови
 (
-    CHOOSING,
-    QUESTION,
-    EMOTION,
-    BIRTHDATE,
-    CHOOSE_DECK,
-    CHOOSE_TAROLOGIST,
-    DONE,
-) = range(7)
+    ASK_QUESTION,
+    ASK_EMOTION,
+    ASK_BIRTHDATE,
+    ASK_DECK,
+    ASK_TAROLOGIST,
+    FINAL,
+) = range(6)
 
-# Тимчасове сховище для даних юзерів, ключ — chat_id
-user_data_store = {}
+# Клавіатури для вибору колоди та таролога
+deck_buttons = [
+    [InlineKeyboardButton("Класична", callback_data='deck_classic')],
+    [InlineKeyboardButton("Універсальна", callback_data='deck_universal')],
+    [InlineKeyboardButton("Спеціалізована", callback_data='deck_special')],
+]
 
-# Привітання
+tarologists_buttons = [
+    [InlineKeyboardButton(f"Таролог {i+1}", callback_data=f"tarologist_{i+1}")] for i in range(6)
+]
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_data_store[chat_id] = {}
-
-    welcome_text = (
-        "👋 Вітаю! Я твій Таролог-бот 🃏\n\n"
-        "Натисни кнопку нижче, щоб отримати розклад від таролога."
+    await update.message.reply_text(
+        "👋 Привіт! Я твій бот Таро.\n"
+        "Натисни кнопку нижче, щоб отримати розклад.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🃏 Отримати розклад від таролога", callback_data='start_reading')]
+        ])
     )
-    keyboard = [
-        [InlineKeyboardButton("🃏 Отримати розклад від таролога", callback_data="start_reading")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    return ConversationHandler.END
 
-# Обробка кнопки "Отримати розклад"
-async def start_reading_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
 
-    user_data_store[chat_id] = {}
+    if query.data == 'start_reading':
+        await query.message.reply_text("Напиши, будь ласка, своє питання або тему для розкладу:")
+        return ASK_QUESTION
 
-    await query.message.reply_text("Будь ласка, напиши своє питання або тему розкладу:")
-    return QUESTION
+    elif query.data.startswith('deck_'):
+        context.user_data['deck'] = query.data.replace('deck_', '')
+        await query.message.reply_text(f"Ви обрали колоду: {context.user_data['deck'].capitalize()}\n"
+                                       "Оберіть таролога:",
+                                       reply_markup=InlineKeyboardMarkup(tarologists_buttons))
+        return ASK_TAROLOGIST
 
-# Прийом питання/теми
-async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    text = update.message.text
-    user_data_store[chat_id]["question"] = text
+    elif query.data.startswith('tarologist_'):
+        context.user_data['tarologist'] = query.data.replace('tarologist_', '')
+        # Тут можна обробити або завершити
+        await query.message.reply_text("Дякую! Ваше замовлення прийнято. Скоро отримаєте розклад.")
+        # Тут можна викликати логіку розкладу таро за chat_id
+        return ConversationHandler.END
 
-    await update.message.reply_text("Опиши свій емоційний стан (наприклад: радісний, сумний, стурбований):")
-    return EMOTION
-
-# Прийом емоційного стану
-async def emotion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    text = update.message.text
-    user_data_store[chat_id]["emotion"] = text
-
-    await update.message.reply_text("Вкажи дату народження у форматі ДД.ММ.РРРР (наприклад, 25.05.1990):")
-    return BIRTHDATE
-
-# Прийом дати народження
-async def birthdate_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    text = update.message.text
-    # Можна додати валідацію дати, поки просто зберігаємо
-    user_data_store[chat_id]["birthdate"] = text
-
-    # Вибір колоди
-    keyboard = [
-        [
-            InlineKeyboardButton("Класична", callback_data="deck_classic"),
-            InlineKeyboardButton("Універсальна", callback_data="deck_universal"),
-            InlineKeyboardButton("Спеціалізована", callback_data="deck_special"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Оберіть колоду:", reply_markup=reply_markup)
-    return CHOOSE_DECK
-
-# Вибір колоди
-async def choose_deck_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat_id = query.message.chat_id
-    user_data_store[chat_id]["deck"] = query.data.replace("deck_", "")
-
-    # Вибір таролога
-    keyboard = [
-        [
-            InlineKeyboardButton("Таролог 1", callback_data="tarologist_1"),
-            InlineKeyboardButton("Таролог 2", callback_data="tarologist_2"),
-        ],
-        [
-            InlineKeyboardButton("Таролог 3", callback_data="tarologist_3"),
-            InlineKeyboardButton("Таролог 4", callback_data="tarologist_4"),
-        ],
-        [
-            InlineKeyboardButton("Таролог 5", callback_data="tarologist_5"),
-            InlineKeyboardButton("Таролог 6", callback_data="tarologist_6"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text("Оберіть таролога:", reply_markup=reply_markup)
-    return CHOOSE_TAROLOGIST
-
-# Вибір таролога
-async def choose_tarologist_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat_id = query.message.chat_id
-    user_data_store[chat_id]["tarologist"] = query.data.replace("tarologist_", "")
-
-    # ТУТ можна відправити на обробку або просто підтвердити прийом даних
-    data = user_data_store[chat_id]
-    response = (
-        "Дякую! Твій запит прийнято:\n\n"
-        f"❓ Питання: {data.get('question')}\n"
-        f"😌 Емоційний стан: {data.get('emotion')}\n"
-        f"🎂 Дата народження: {data.get('birthdate')}\n"
-        f"🃏 Колода: {data.get('deck')}\n"
-        f"🔮 Таролог: {data.get('tarologist')}\n\n"
-        "Незабаром ти отримаєш розклад від таролога."
-    )
-    await query.edit_message_text(response)
-    # Тут можна додати логіку звернення до бази або API таролога
+    elif query.data == 'cancel':
+        await query.message.reply_text("Розмова скасована.")
+        return ConversationHandler.END
 
     return ConversationHandler.END
 
-# Команда /cancel для відміни
+async def ask_emotion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['question'] = update.message.text
+    await update.message.reply_text("Опиши свій емоційний стан:")
+    return ASK_EMOTION
+
+async def ask_birthdate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['emotion'] = update.message.text
+    await update.message.reply_text("Введи дату народження (формат: ДД.ММ.РРРР):")
+    return ASK_BIRTHDATE
+
+async def ask_deck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['birthdate'] = update.message.text
+    await update.message.reply_text(
+        "Оберіть колоду:",
+        reply_markup=InlineKeyboardMarkup(deck_buttons)
+    )
+    return ASK_DECK
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_data_store.pop(chat_id, None)
-    await update.message.reply_text("Розклад скасовано. Якщо хочеш, почни спочатку з /start")
+    await update.message.reply_text('Розмова скасована.')
     return ConversationHandler.END
 
-# Flask route для Telegram webhook
-@flask_app.route("/", methods=["POST"])
-def webhook():
-    from telegram import Update
-    update = Update.de_json(request.get_json(force=True), app.bot)
-    app.update_queue.put_nowait(update)
-    return "OK", 200
-
-# Налаштування Application та ConversationHandler
-app = Application.builder().token(TOKEN).build()
-
-conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(start_reading_handler, pattern="^start_reading$")],
-    states={
-        QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, question_handler)],
-        EMOTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, emotion_handler)],
-        BIRTHDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, birthdate_handler)],
-        CHOOSE_DECK: [CallbackQueryHandler(choose_deck_handler, pattern="^deck_")],
-        CHOOSE_TAROLOGIST: [CallbackQueryHandler(choose_tarologist_handler, pattern="^tarologist_")],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    per_message=False,
-)
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(conv_handler)
 
 def main():
-    # Запуск webhook
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        webhook_url=WEBHOOK_URL,
+    import os
+
+    TOKEN = "7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q"
+
+    application = ApplicationBuilder().token(TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_handler, pattern='^start_reading$')],
+        states={
+            ASK_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_emotion)],
+            ASK_EMOTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthdate)],
+            ASK_BIRTHDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_deck)],
+            ASK_DECK: [CallbackQueryHandler(button_handler, pattern='^deck_')],
+            ASK_TAROLOGIST: [CallbackQueryHandler(button_handler, pattern='^tarologist_')],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=True,
     )
 
-if __name__ == "__main__":
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(conv_handler)
+
+    print("Bot started with polling...")
+    application.run_polling()
+
+
+if __name__ == '__main__':
     main()

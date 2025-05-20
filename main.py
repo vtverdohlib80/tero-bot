@@ -1,6 +1,6 @@
-from flask import Flask, request
 import os
 import requests
+from flask import Flask, request
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,9 +12,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CHATGPT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# Збережемо стан користувача (для простоти — у пам'яті, на проді треба базу)
-user_states = {}
-
 @app.route('/')
 def index():
     return "Tarot Bot is running!"
@@ -22,53 +19,48 @@ def index():
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if 'message' in data:
-        chat_id = data['message']['chat']['id']
-        text = data['message'].get('text', '')
+    print("Incoming update:", data)
 
+    if 'message' in data and 'text' in data['message']:
+        chat_id = data['message']['chat']['id']
+        text = data['message']['text']
+
+        # Обробка кнопок і звичайних повідомлень
         if text == '/start':
-            send_welcome(chat_id)
-            user_states[chat_id] = None  # Очікуємо вибір теми
+            send_welcome_buttons(chat_id)
+        elif text in ['Кохання', 'Фінанси', "Кар'єра", 'Порада на день']:
+            prompt = f"""Ти досвідчений таролог. Проведи розклад на тему "{text}". 
+            Вибери випадково 3 карти і поясни їх значення. Потім дай коротке тлумачення."""
+            gpt_response = ask_chatgpt(prompt)
+            send_message(chat_id, gpt_response)
+        elif text == 'Ввести свій запит':
+            send_message(chat_id, "Напиши своє питання, і я зроблю розклад карт Таро.")
         else:
-            state = user_states.get(chat_id)
-            if state == "awaiting_custom_query":
-                # Отримали текст від користувача для кастомного розкладу
-                prompt = create_prompt(text)
-                gpt_response = ask_chatgpt(prompt)
-                send_message(chat_id, gpt_response)
-                user_states[chat_id] = None
-                send_welcome(chat_id)  # Показуємо меню знову
-            else:
-                # Якщо натиснули одну з кнопок меню (кохання, фінанси, кар'єра, порада)
-                if text.lower() in ["кохання", "фінанси", "кар'єра", "порада на день"]:
-                    prompt = create_prompt(text)
-                    gpt_response = ask_chatgpt(prompt)
-                    send_message(chat_id, gpt_response)
-                    send_welcome(chat_id)  # Показуємо меню знову
-                elif text == "Ввести свій запит":
-                    send_message(chat_id, "Введіть свій запит для розкладу Таро:")
-                    user_states[chat_id] = "awaiting_custom_query"
-                else:
-                    send_message(chat_id, "Будь ласка, виберіть одну з кнопок нижче.")
-                    send_welcome(chat_id)
+            # Тут вважаємо, що це власний запит користувача
+            prompt = f"""Ти досвідчений таролог. Проведи уявний розклад карт Таро на тему:
+            "{text}". Вибери випадково 3 карти і поясни їх значення. Потім зроби коротке тлумачення ситуації."""
+            gpt_response = ask_chatgpt(prompt)
+            send_message(chat_id, gpt_response)
+
     return {"ok": True}
 
-def send_welcome(chat_id):
+def send_welcome_buttons(chat_id):
     keyboard = {
         "keyboard": [
-            ["Кохання", "Фінанси"],
-            ["Кар'єра", "Порада на день"],
-            ["Ввести свій запит"]
+            [{"text": "Кохання"}, {"text": "Фінанси"}],
+            [{"text": "Кар'єра"}, {"text": "Порада на день"}],
+            [{"text": "Ввести свій запит"}]
         ],
-        "one_time_keyboard": True,
-        "resize_keyboard": True
+        "resize_keyboard": True,
+        "one_time_keyboard": True
     }
-    send_message(chat_id, "Оберіть тему розкладу Таро:", keyboard)
-
-def create_prompt(topic):
-    return f"""
-    Ти досвідчений таролог. Проведи уявний розклад карт Таро на тему: "{topic}". Вибери випадково 3 карти і поясни їх значення. Потім зроби коротке тлумачення ситуації.
-    """
+    url = f"{TELEGRAM_API}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": "Обери тему розкладу або введи свій запит:",
+        "reply_markup": keyboard
+    }
+    requests.post(url, json=payload)
 
 def ask_chatgpt(prompt):
     headers = {
@@ -85,20 +77,23 @@ def ask_chatgpt(prompt):
     }
 
     response = requests.post(CHATGPT_ENDPOINT, headers=headers, json=data)
-    result = response.json()
-     print("OpenAI response:", result)  # <-- додай це для діагностики
-   
-        return result['choices'][0]['message']['content']
-    except Exception:
+
+    if response.status_code != 200:
+        print(f"OpenAI API error: {response.status_code} - {response.text}")
         return "Вибач, сталася помилка при трактуванні карт 😔"
 
-def send_message(chat_id, text, reply_markup=None):
+    try:
+        result = response.json()
+        print("OpenAI response:", result)
+        return result['choices'][0]['message']['content']
+    except Exception as e:
+        print("Error parsing OpenAI response:", e)
+        return "Вибач, сталася помилка при трактуванні карт 😔"
+
+def send_message(chat_id, text):
     url = f"{TELEGRAM_API}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
     requests.post(url, json=payload)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

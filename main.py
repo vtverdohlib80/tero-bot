@@ -64,3 +64,7 @@ def send_message(chat_id, text):
     url = f"{TELEGRAM_API}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
     requests.post(url, json=payload)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

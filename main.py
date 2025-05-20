@@ -3,11 +3,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackQueryHandler, ConversationHandler
 )
-from bot_handlers import (
-    start, button_handler, question_handler, emotion_handler,
-    birthdate_handler, personal_handler, confirmation_handler, cancel,
-    WAIT_QUESTION, WAIT_EMOTION, WAIT_BIRTHDATE, WAIT_PERSONAL, WAIT_DECK, WAIT_TAROLOG, CONFIRMATION
-)
+
 
 async def on_startup(app):
     webhook_url = os.environ["WEBHOOK_URL"]

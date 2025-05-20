@@ -14,18 +14,15 @@ from telegram.ext import (
     filters,
 )
 import logging
-from flask import Flask, request
 
 # Логування
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Константи
 TOKEN = "7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q"
 WEBHOOK_URL = "https://tero-bot-33.onrender.com"
 
-# Стадії діалогу
 (
     WAIT_QUESTION,
     WAIT_EMOTION,
@@ -168,7 +165,6 @@ def main():
 
     app.add_handler(conv_handler)
 
-    # Webhook запуск
     app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 10000)),

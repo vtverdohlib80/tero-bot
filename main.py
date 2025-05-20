@@ -1,53 +1,51 @@
+from flask import Flask, request
+import requests
 import os
-import requests
-from flask import Flask, request, jsonify
-import requests
 
 app = Flask(__name__)
 
-TOKEN = "тут_твій_токен_бота"
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}"
+# Токен твого бота (постав свій)
+BOT_TOKEN = '7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q'
+TELEGRAM_API_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
 def send_message(chat_id, text):
     url = f"{TELEGRAM_API_URL}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
     try:
         requests.post(url, json=payload)
     except Exception as e:
-        print("Failed to send message:", e)
+        print(f"Failed to send message: {e}")
 
-@app.route('/7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q', methods=['POST'])
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
-    # твій код
-
     try:
-        data = request.json
-        print("Received data:", data)
+        data = request.get_json(force=True)
+        print("Update received:", data)  # Лог для дебагу
 
-        if not data:
-            return jsonify({"ok": False, "error": "No JSON data"}), 400
+        message = data.get('message')
+        if not message:
+            return 'ok', 200  # Якщо нема повідомлення, просто відповідаємо 200
 
-        if "message" in data and "text" in data["message"]:
-            chat_id = data["message"]["chat"]["id"]
-            text = data["message"]["text"]
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
 
-            # Тут можна обробляти команди чи тексти
-            if text.lower() == "/start":
-                send_message(chat_id, "Вітаю! Це твій бот.")
-            else:
-                send_message(chat_id, f"Ти написав: {text}")
-
+        # Простий приклад логіки — відповідаємо на будь-який текст
+        if text:
+            # Тут можна додати твою обробку карт або інших команд
+            send_message(chat_id, f"Ви написали: {text}")
         else:
-            print("Unsupported update type")
-            # Можна додатково обробити callback_query або інші типи
+            send_message(chat_id, "Вибач, сталася помилка при трактуванні карт 😔")
 
-        return jsonify({"ok": True})
+        return 'ok', 200
 
     except Exception as e:
-        print("Error in webhook:", e)
-        # Можна також надіслати повідомлення про помилку користувачу, якщо хочеш
-        return jsonify({"ok": True})  # щоб Telegram не повторював запити
+        print(f"Error processing update: {e}")
+        # Відповідаємо 200, щоб Telegram не повторював webhook
+        return 'ok', 200
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
+if __name__ == '__main__':
+    # Запускаємо сервер на всіх інтерфейсах, порт 5000
+    app.run(host='0.0.0.0', port=5000)

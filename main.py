@@ -1,119 +1,209 @@
-import os
-from flask import Flask, request
-import requests
-from dotenv import load_dotenv
-import json
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+    CallbackQueryHandler,
+)
 
-load_dotenv()
+# Стадії діалогу
+(
+    WAIT_QUESTION,
+    WAIT_EMOTION,
+    WAIT_BIRTHDATE,
+    WAIT_PERSONAL,
+    WAIT_DECK,
+    WAIT_TAROLOG,
+    CONFIRMATION,
+) = range(7)
 
-app = Flask(__name__)
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-
-user_states = {}
-user_data = {}
-
-start_button = [["Отримати розклад від таролога"]]
-deck_buttons = [["Класична"], ["Універсальна"], ["Спеціалізована"]]
-tarot_readers_buttons = [
-    ["Таролог 1", "Таролог 2"],
-    ["Таролог 3", "Таролог 4"],
-    ["Таролог 5", "Таролог 6"]
+# Дані для вибору
+DECKS = ["Класична 🃏", "Універсальна 🔮", "Спеціалізована 🌟"]
+TAROLOGS = [
+    "Таролог 1 🧙‍♂️",
+    "Таролог 2 🧙‍♀️",
+    "Таролог 3 🧙",
+    "Таролог 4 🧙‍♂️",
+    "Таролог 5 🧙‍♀️",
+    "Таролог 6 🧙",
 ]
 
-def send_message(chat_id, text, reply_markup=None):
-    url = f"{TELEGRAM_API}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    if reply_markup:
-        payload["reply_markup"] = json.dumps(reply_markup)
-    requests.post(url, json=payload)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    welcome_text = (
+        f"👋 Вітаю, {user.first_name}! Я твій Таро-бот.\n\n"
+        "Натисни кнопку нижче, щоб отримати розклад від таролога."
+    )
+    keyboard = [
+        [InlineKeyboardButton("🃏 Отримати розклад від таролога", callback_data="start_reading")]
+    ]
+    await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-def get_keyboard(buttons, one_time=False):
-    return {
-        "keyboard": buttons,
-        "resize_keyboard": True,
-        "one_time_keyboard": one_time
-    }
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if not data:
-        return {"ok": True}
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
 
-    if "message" not in data:
-        return {"ok": True}
+    if data == "start_reading":
+        await query.message.reply_text(
+            "❓ Введи чітке або приблизне питання чи тему, на яку хочеш отримати відповідь:"
+        )
+        return WAIT_QUESTION
 
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "")
+    # Обробка вибору колоди
+    if data.startswith("deck_"):
+        deck_choice = data.split("_")[1]
+        context.user_data["deck"] = DECKS[int(deck_choice)]
+        # Наступний крок - вибір таролога
+        keyboard = [
+            [InlineKeyboardButton(t, callback_data=f"tarolog_{i}")]
+            for i, t in enumerate(TAROLOGS)
+        ]
+        await query.message.reply_text(
+            "🎴 Обери таролога:", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return WAIT_TAROLOG
 
-    if chat_id not in user_states or user_states[chat_id] == "start":
-        if text == "Отримати розклад від таролога":
-            user_states[chat_id] = "waiting_for_question"
-            user_data[chat_id] = {}
-            send_message(chat_id, "Введіть, будь ласка, ваше питання або тему, на яку хочете отримати відповідь.")
-        else:
-            send_message(chat_id, "Привіт! Натисніть кнопку нижче, щоб отримати розклад від таролога.", reply_markup=get_keyboard(start_button))
-        return {"ok": True}
+    # Обробка вибору таролога
+    if data.startswith("tarolog_"):
+        tarolog_choice = data.split("_")[1]
+        context.user_data["tarolog"] = TAROLOGS[int(tarolog_choice)]
 
-    if user_states[chat_id] == "waiting_for_question":
-        user_data[chat_id]["question"] = text
-        user_states[chat_id] = "waiting_for_emotion"
-        send_message(chat_id, "Опишіть ваш емоційний стан на даний момент.")
-        return {"ok": True}
+        # Підсумок і запит на підтвердження
+        question = context.user_data.get("question")
+        emotion = context.user_data.get("emotion")
+        birthdate = context.user_data.get("birthdate")
+        personal = context.user_data.get("personal")
+        deck = context.user_data.get("deck")
+        tarolog = context.user_data.get("tarolog")
 
-    if user_states[chat_id] == "waiting_for_emotion":
-        user_data[chat_id]["emotion"] = text
-        user_states[chat_id] = "waiting_for_birthdate"
-        send_message(chat_id, "Введіть, будь ласка, вашу дату народження (формат: ДД.MM.РРРР).")
-        return {"ok": True}
+        summary = (
+            f"📝 Твій розклад:\n"
+            f"Питання: {question}\n"
+            f"Емоційний стан: {emotion}\n"
+            f"Дата народження: {birthdate}\n"
+            f"Інша інформація: {personal}\n"
+            f"Колода: {deck}\n"
+            f"Таролог: {tarolog}\n\n"
+            "✅ Якщо все вірно, напиши 'Підтверджую', або 'Скасувати' для скасування."
+        )
+        await query.message.reply_text(summary)
+        return CONFIRMATION
 
-    if user_states[chat_id] == "waiting_for_birthdate":
-        user_data[chat_id]["birthdate"] = text
-        user_states[chat_id] = "waiting_for_deck"
-        send_message(chat_id, "Оберіть колоду карт:", reply_markup=get_keyboard(deck_buttons, one_time=True))
-        return {"ok": True}
 
-    if user_states[chat_id] == "waiting_for_deck":
-        if text not in ["Класична", "Універсальна", "Спеціалізована"]:
-            send_message(chat_id, "Будь ласка, оберіть один з варіантів колоди, натиснувши кнопку.")
-            return {"ok": True}
-        user_data[chat_id]["deck"] = text
-        user_states[chat_id] = "waiting_for_tarot_reader"
-        send_message(chat_id, "Оберіть таролога:", reply_markup=get_keyboard(tarot_readers_buttons, one_time=True))
-        return {"ok": True}
+async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text:
+        await update.message.reply_text("Будь ласка, введи питання або тему.")
+        return WAIT_QUESTION
+    context.user_data["question"] = text
+    await update.message.reply_text("😊 Опиши свій емоційний стан:")
+    return WAIT_EMOTION
 
-    if user_states[chat_id] == "waiting_for_tarot_reader":
-        valid_readers = sum(tarot_readers_buttons, [])  
-        if text not in valid_readers:
-            send_message(chat_id, "Будь ласка, оберіть таролога з кнопок нижче.")
-            return {"ok": True}
-        user_data[chat_id]["tarot_reader"] = text
-        user_states[chat_id] = "completed"
 
-        print(f"Нове замовлення від {chat_id}: {user_data[chat_id]}")
+async def emotion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text:
+        await update.message.reply_text("Будь ласка, опиши свій емоційний стан.")
+        return WAIT_EMOTION
+    context.user_data["emotion"] = text
+    await update.message.reply_text("📅 Введи дату народження (формат: ДД.ММ.РРРР):")
+    return WAIT_BIRTHDATE
 
-        send_message(chat_id, "Дякую! Ваш запит прийнято. Таролог незабаром з вами зв'яжеться.")
-        send_message(chat_id, "Якщо хочете зробити новий запит, натисніть кнопку нижче.", reply_markup=get_keyboard(start_button))
 
-        user_states[chat_id] = "start"
-        user_data[chat_id] = {}
-        return {"ok": True}
+async def birthdate_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    # Проста валідація дати
+    import re
 
-    send_message(chat_id, "Вибачте, сталася помилка. Спробуйте почати заново.", reply_markup=get_keyboard(start_button))
-    user_states[chat_id] = "start"
-    user_data[chat_id] = {}
-    return {"ok": True}
+    if not re.match(r"\d{2}\.\d{2}\.\d{4}", text):
+        await update.message.reply_text(
+            "Некоректний формат. Введи дату у форматі ДД.MM.РРРР, наприклад 25.05.1990"
+        )
+        return WAIT_BIRTHDATE
+    context.user_data["birthdate"] = text
+    await update.message.reply_text(
+        "ℹ️ Введи додаткову персональну інформацію, якщо хочеш (або напиши 'нема'):"
+    )
+    return WAIT_PERSONAL
 
-@app.route("/")
-def index():
-    return "Tarot Bot is running!"
+
+async def personal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text:
+        text = "нема"
+    context.user_data["personal"] = text
+
+    # Пропонуємо вибір колоди
+    keyboard = [
+        [InlineKeyboardButton(deck, callback_data=f"deck_{i}")]
+        for i, deck in enumerate(DECKS)
+    ]
+    await update.message.reply_text(
+        "🃏 Обери колоду карт:", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return WAIT_DECK
+
+
+async def confirmation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower().strip()
+    if text == "підтверджую":
+        # Тут ти можеш підключити генерацію відповіді таролога, а поки заглушка:
+        await update.message.reply_text(
+            "✨ Дякую за підтвердження! Твій розклад готується...\n(тут буде відповідь таролога)"
+        )
+        # Очистка userdata
+        context.user_data.clear()
+        return ConversationHandler.END
+    elif text == "скасувати":
+        await update.message.reply_text("❌ Розклад скасовано. Якщо хочеш, спробуй ще раз /start")
+        context.user_data.clear()
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text("Напиши 'Підтверджую' або 'Скасувати'.")
+        return CONFIRMATION
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Дія скасована. Якщо хочеш, почни заново командою /start")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+def main():
+    TOKEN = "7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q"
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start), CallbackQueryHandler(button_handler, pattern="^start_reading$")],
+        states={
+            WAIT_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, question_handler)],
+            WAIT_EMOTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, emotion_handler)],
+            WAIT_BIRTHDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, birthdate_handler)],
+            WAIT_PERSONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, personal_handler)],
+            WAIT_DECK: [CallbackQueryHandler(button_handler, pattern="^deck_")],
+            WAIT_TAROLOG: [CallbackQueryHandler(button_handler, pattern="^tarolog_")],
+            CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirmation_handler)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
+    )
+
+    app.add_handler(conv_handler)
+    print("Bot started...")
+    app.run_polling()
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    main()

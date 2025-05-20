@@ -1,105 +1,76 @@
-import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    ConversationHandler,
-    ContextTypes,
     filters,
+    ContextTypes,
+    ConversationHandler,
 )
 
-# Етапи сценарію
-WAIT_QUESTION, WAIT_EMOTION, WAIT_BIRTHDATE, WAIT_PERSONAL, WAIT_DECK, WAIT_TAROLOG = range(6)
+import logging
 
-# Старт
+# ====== ВСТАВ СЮДИ СВОЇ ДАНІ ======
+BOT_TOKEN = "123456789:ABCdefGhijkLMNOPqrstuVWXYZ1234567890"
+WEBHOOK_URL = "https://yourdomain.com/webhook"  # або ngrok URL
+# =================================
+
+# Логування
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
+# Стан
+ASK_NAME = 1
+
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("Почати розклад 🃏", callback_data="start_reading")]]
+    keyboard = [
+        [InlineKeyboardButton("Запустити", callback_data="start_clicker")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Привіт! Натисни, щоб почати:", reply_markup=reply_markup)
+    await update.message.reply_text("Вітаю! Натисни кнопку нижче для старту гри.", reply_markup=reply_markup)
 
-# Обробка кнопок
+# Обробка кнопки
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    if query.data == "start_clicker":
+        await query.message.reply_text("Гра почалась! Введи своє ім'я:")
+        return ASK_NAME
 
-    if query.data == "start_reading":
-        await query.edit_message_text("Яке у тебе питання?")
-        return WAIT_QUESTION
-
-    elif query.data.startswith("deck_"):
-        await query.edit_message_text("Твій розклад готовий ✅")
-        return ConversationHandler.END
-
-    elif query.data.startswith("tarolog_"):
-        await query.edit_message_text("Дякуємо! Таролог скоро з вами зв'яжеться.")
-        return ConversationHandler.END
-
-# Питання користувача
-async def question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["question"] = update.message.text
-    await update.message.reply_text("Яку емоцію ти зараз відчуваєш?")
-    return WAIT_EMOTION
-
-# Емоція
-async def emotion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["emotion"] = update.message.text
-    await update.message.reply_text("Введи свою дату народження (ДД.ММ.РРРР):")
-    return WAIT_BIRTHDATE
-
-# Дата народження
-async def birthdate_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["birthdate"] = update.message.text
-    await update.message.reply_text("Напиши щось про себе (коротко):")
-    return WAIT_PERSONAL
-
-# Особиста інформація
-async def personal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["personal"] = update.message.text
-
-    keyboard = [
-        [InlineKeyboardButton("🔮 Колода Таро 1", callback_data="deck_1")],
-        [InlineKeyboardButton("🧿 Колода Таро 2", callback_data="deck_2")],
-    ]
-    await update.message.reply_text("Оберіть колоду:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return WAIT_DECK
-
-# Команда cancel
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Скасовано.")
+# Отримання імені
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.message.text
+    await update.message.reply_text(f"Привіт, {user_name}! 🎮 Тепер натискай кнопку, щоб майнити!")
     return ConversationHandler.END
 
-# Основна функція
-def main():
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://yourdomain.com/webhook
+# Помилка
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logging.error(msg="Виникла помилка:", exc_info=context.error)
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# Головна функція
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[CallbackQueryHandler(button_handler)],
         states={
-            WAIT_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, question_handler)],
-            WAIT_EMOTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, emotion_handler)],
-            WAIT_BIRTHDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, birthdate_handler)],
-            WAIT_PERSONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, personal_handler)],
-            WAIT_DECK: [CallbackQueryHandler(button_handler, pattern="^deck_")],
-            WAIT_TAROLOG: [CallbackQueryHandler(button_handler, pattern="^tarolog_")],
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,
-        allow_reentry=True,
+        fallbacks=[],
     )
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^start_reading$"))
+    app.add_error_handler(error_handler)
 
-    # Запуск у режимі webhook
     app.run_webhook(
         listen="0.0.0.0",
-        port=int(os.getenv("PORT", 10000)),
-        url_path="/webhook",
+        port=8443,
+        url_path="webhook",
         webhook_url=f"{WEBHOOK_URL}/webhook"
     )
 

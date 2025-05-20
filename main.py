@@ -86,7 +86,8 @@ def ask_chatgpt(prompt):
 
     response = requests.post(CHATGPT_ENDPOINT, headers=headers, json=data)
     result = response.json()
-    try:
+     print("OpenAI response:", result)  # <-- додай це для діагностики
+   
         return result['choices'][0]['message']['content']
     except Exception:
         return "Вибач, сталася помилка при трактуванні карт 😔"

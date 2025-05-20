@@ -47,7 +47,7 @@ def get_keyboard(buttons, one_time=False):
         "one_time_keyboard": one_time
     }
 
-@app.route(f"/{TELEGRAM_PATH}", methods=["POST", "GET"])
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST", "GET"])
 
 def webhook():
     if request.method == "GET":

@@ -38,7 +38,8 @@ def telegram_webhook():
         else:
             prompt = f"""
             Ти досвідчений таролог. Проведи уявний розклад карт Таро на тему:
-            "{text}". Випадково обери 3 карти, поясни їх значення і дай коротке тлумачення ситуації.
+            "{text}". Вибери випадково 3 карти і поясни їх значення. 
+            Потім зроби коротке тлумачення ситуації.
             """
             gpt_response = ask_chatgpt(prompt)
             send_message(chat_id, gpt_response)
@@ -64,7 +65,7 @@ def ask_chatgpt(prompt):
 
     try:
         return result['choices'][0]['message']['content']
-    except Exception as e:
+    except Exception:
         return "Вибач, сталася помилка при трактуванні карт 😔"
 
 def send_message(chat_id, text, reply_markup=None):
@@ -76,3 +77,8 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = reply_markup
     requests.post(url, json=payload)
+
+# 🚨 Додаємо запуск сервера тут:
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

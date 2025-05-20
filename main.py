@@ -9,21 +9,13 @@ load_dotenv()
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-# Замінюємо ":" на "_" для шляху webhook
-WEBHOOK_PATH = TELEGRAM_TOKEN.replace(":", "_")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# Словники для станів та даних користувачів
 user_states = {}
 user_data = {}
 
-# Кнопка для початку
 start_button = [["Отримати розклад від таролога"]]
-
-# Кнопки для вибору колоди карт
 deck_buttons = [["Класична"], ["Універсальна"], ["Спеціалізована"]]
-
-# Кнопки для вибору таролога (6 варіантів)
 tarot_readers_buttons = [
     ["Таролог 1", "Таролог 2"],
     ["Таролог 3", "Таролог 4"],
@@ -48,7 +40,7 @@ def get_keyboard(buttons, one_time=False):
         "one_time_keyboard": one_time
     }
 
-@app.route(f"/{WEBHOOK_PATH}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     if not data:
@@ -61,7 +53,6 @@ def webhook():
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
 
-    # Якщо користувач новий або не у процесі опитування
     if chat_id not in user_states or user_states[chat_id] == "start":
         if text == "Отримати розклад від таролога":
             user_states[chat_id] = "waiting_for_question"
@@ -71,7 +62,6 @@ def webhook():
             send_message(chat_id, "Привіт! Натисніть кнопку нижче, щоб отримати розклад від таролога.", reply_markup=get_keyboard(start_button))
         return {"ok": True}
 
-    # Кроки опитування
     if user_states[chat_id] == "waiting_for_question":
         user_data[chat_id]["question"] = text
         user_states[chat_id] = "waiting_for_emotion"
@@ -100,7 +90,7 @@ def webhook():
         return {"ok": True}
 
     if user_states[chat_id] == "waiting_for_tarot_reader":
-        valid_readers = sum(tarot_readers_buttons, [])  # список всіх тарологів
+        valid_readers = sum(tarot_readers_buttons, [])  
         if text not in valid_readers:
             send_message(chat_id, "Будь ласка, оберіть таролога з кнопок нижче.")
             return {"ok": True}
@@ -112,7 +102,6 @@ def webhook():
         send_message(chat_id, "Дякую! Ваш запит прийнято. Таролог незабаром з вами зв'яжеться.")
         send_message(chat_id, "Якщо хочете зробити новий запит, натисніть кнопку нижче.", reply_markup=get_keyboard(start_button))
 
-        # Очистка стану для нового запиту
         user_states[chat_id] = "start"
         user_data[chat_id] = {}
         return {"ok": True}

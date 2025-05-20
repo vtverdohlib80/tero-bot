@@ -8,13 +8,12 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
-
 import logging
 
-# ====== ВСТАВ СЮДИ СВОЇ ДАНІ ======
-BOT_TOKEN = "123456789:ABCdefGhijkLMNOPqrstuVWXYZ1234567890"
-WEBHOOK_URL = "https://yourdomain.com/webhook"  # або ngrok URL
-# =================================
+# ====== ТВОЇ ДАНІ (вже вставлені) ======
+BOT_TOKEN = "7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q"
+WEBHOOK_URL = "https://tero-bot-33.onrender.com"
+# ======================================
 
 # Логування
 logging.basicConfig(
@@ -47,7 +46,7 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Привіт, {user_name}! 🎮 Тепер натискай кнопку, щоб майнити!")
     return ConversationHandler.END
 
-# Помилка
+# Обробка помилок
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(msg="Виникла помилка:", exc_info=context.error)
 

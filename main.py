@@ -16,8 +16,10 @@ def send_message(chat_id, text):
     except Exception as e:
         print("Failed to send message:", e)
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q', methods=['POST'])
 def webhook():
+    # твій код
+
     try:
         data = request.json
         print("Received data:", data)

@@ -61,12 +61,15 @@ def ask_chatgpt(prompt):
     }
 
     response = requests.post(CHATGPT_ENDPOINT, headers=headers, json=data)
-    result = response.json()
-
+    
     try:
+        result = response.json()
+        print("GPT Response:", result)  # <-- це виведе повну відповідь у логах
         return result['choices'][0]['message']['content']
-    except Exception:
+    except Exception as e:
+        print("GPT Error:", e)
         return "Вибач, сталася помилка при трактуванні карт 😔"
+
 
 def send_message(chat_id, text, reply_markup=None):
     url = f"{TELEGRAM_API}/sendMessage"

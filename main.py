@@ -160,7 +160,7 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
-        per_message=True,
+        per_chat=True,
     )
 
     app.add_handler(conv_handler)

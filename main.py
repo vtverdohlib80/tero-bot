@@ -1,87 +1,51 @@
 import os
 import requests
-from flask import Flask, request
-from dotenv import load_dotenv
-
-load_dotenv()
+from flask import Flask, request, jsonify
+import requests
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-CHATGPT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+TOKEN = "тут_твій_токен_бота"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-@app.route('/')
-def index():
-    return "Tarot Bot is running!"
-
-@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-def telegram_webhook():
-    data = request.get_json()
-
-    if 'message' in data and 'text' in data['message']:
-        chat_id = data['message']['chat']['id']
-        text = data['message']['text']
-
-        if text == '/start':
-            welcome_text = "🔮 Вітаю! Я бот-таролог. Обери запит або напиши власне питання:"
-            reply_markup = {
-                "keyboard": [
-                    [{"text": "Кохання ❤️"}, {"text": "Фінанси 💰"}],
-                    [{"text": "Кар'єра 👔"}, {"text": "Порада на день 🌞"}]
-                ],
-                "resize_keyboard": True,
-                "one_time_keyboard": False
-            }
-            send_message(chat_id, welcome_text, reply_markup)
-        else:
-            prompt = f"""
-            Ти досвідчений таролог. Проведи уявний розклад карт Таро на тему:
-            "{text}". Вибери випадково 3 карти і поясни їх значення. 
-            Потім зроби коротке тлумачення ситуації.
-            """
-            gpt_response = ask_chatgpt(prompt)
-            send_message(chat_id, gpt_response)
-
-    return {"ok": True}
-
-def ask_chatgpt(prompt):
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": "Ти досвідчений таролог."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.9
-    }
-
-    response = requests.post(CHATGPT_ENDPOINT, headers=headers, json=data)
-    
+def send_message(chat_id, text):
+    url = f"{TELEGRAM_API_URL}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        result = response.json()
-        print("GPT Response:", result)  # <-- це виведе повну відповідь у логах
-        return result['choices'][0]['message']['content']
+        requests.post(url, json=payload)
     except Exception as e:
-        print("GPT Error:", e)
-        return "Вибач, сталася помилка при трактуванні карт 😔"
+        print("Failed to send message:", e)
 
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        data = request.json
+        print("Received data:", data)
 
-def send_message(chat_id, text, reply_markup=None):
-    url = f"{TELEGRAM_API}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    requests.post(url, json=payload)
+        if not data:
+            return jsonify({"ok": False, "error": "No JSON data"}), 400
 
-# 🚨 Додаємо запуск сервера тут:
+        if "message" in data and "text" in data["message"]:
+            chat_id = data["message"]["chat"]["id"]
+            text = data["message"]["text"]
+
+            # Тут можна обробляти команди чи тексти
+            if text.lower() == "/start":
+                send_message(chat_id, "Вітаю! Це твій бот.")
+            else:
+                send_message(chat_id, f"Ти написав: {text}")
+
+        else:
+            print("Unsupported update type")
+            # Можна додатково обробити callback_query або інші типи
+
+        return jsonify({"ok": True})
+
+    except Exception as e:
+        print("Error in webhook:", e)
+        # Можна також надіслати повідомлення про помилку користувачу, якщо хочеш
+        return jsonify({"ok": True})  # щоб Telegram не повторював запити
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
+

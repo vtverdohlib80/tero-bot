@@ -1,51 +1,72 @@
-from flask import Flask, request
-import requests
 import os
+from flask import Flask, request, abort
+import requests
+import openai
 
 app = Flask(__name__)
 
-# Токен твого бота (постав свій)
-BOT_TOKEN = '7560668855:AAHwS3FGu0aSCn6fP8JBtcfYNgC96W77k7Q'
-TELEGRAM_API_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
+# Завантажуємо токени з .env (або можна вставити тут напряму)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Telegram Bot Token
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # OpenAI API Key
+
+if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
+    raise RuntimeError("TELEGRAM_TOKEN та OPENAI_API_KEY мають бути встановлені у середовищі")
+
+openai.api_key = OPENAI_API_KEY
+
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 def send_message(chat_id, text):
     url = f"{TELEGRAM_API_URL}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": text
+        "text": text,
+        "parse_mode": "HTML"
     }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Failed to send message: {e}")
+    response = requests.post(url, json=payload)
+    return response.ok
 
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def generate_tarot_reading(question):
+    prompt = (
+        "Ти — досвідчений таролог. Користувач задає питання:\n"
+        f"{question}\n"
+        "Зроби розклад Таро, дай зрозумілу і доброзичливу відповідь українською мовою."
+    )
+    try:
+        completion = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+            temperature=0.7,
+        )
+        answer = completion.choices[0].message['content'].strip()
+        return answer
+    except Exception as e:
+        print("OpenAI error:", e)
+        return None
+
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
-    try:
-        data = request.get_json(force=True)
-        print("Update received:", data)  # Лог для дебагу
+    data = request.json
 
-        message = data.get('message')
-        if not message:
-            return 'ok', 200  # Якщо нема повідомлення, просто відповідаємо 200
+    if "message" not in data:
+        return "ok"
 
-        chat_id = message['chat']['id']
-        text = message.get('text', '')
+    message = data["message"]
+    chat_id = message["chat"]["id"]
+    text = message.get("text", "")
 
-        # Простий приклад логіки — відповідаємо на будь-який текст
-        if text:
-            # Тут можна додати твою обробку карт або інших команд
-            send_message(chat_id, f"Ви написали: {text}")
-        else:
-            send_message(chat_id, "Вибач, сталася помилка при трактуванні карт 😔")
+    if not text:
+        send_message(chat_id, "Вибач, я не зрозумів твоє повідомлення 😔")
+        return "ok"
 
-        return 'ok', 200
+    reading = generate_tarot_reading(text)
+    if reading:
+        send_message(chat_id, reading)
+    else:
+        send_message(chat_id, "Вибач, сталася помилка при трактуванні карт 😔")
 
-    except Exception as e:
-        print(f"Error processing update: {e}")
-        # Відповідаємо 200, щоб Telegram не повторював webhook
-        return 'ok', 200
+    return "ok"
 
-if __name__ == '__main__':
-    # Запускаємо сервер на всіх інтерфейсах, порт 5000
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

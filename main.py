@@ -1,73 +1,90 @@
 import os
 import logging
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from fastapi import FastAPI, Request
+import uvicorn
+
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
-    CallbackQueryHandler,
     ContextTypes,
 )
 
-# Налаштування логування
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+# --- Налаштування ---
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+APP_NAME = os.getenv("APP_NAME")  # без https://, наприклад: my-bot-123.onrender.com
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+WEBHOOK_URL = f"https://{APP_NAME}{WEBHOOK_PATH}"
+PORT = int(os.environ.get("PORT", 10000))
+
+# --- Логування ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Отримання змінних середовища
-TOKEN = os.getenv("BOT_TOKEN")
-APP_NAME = os.getenv("APP_NAME")
-PORT = int(os.getenv("PORT", 8443))
+# --- Telegram Application ---
+app = Application.builder().token(BOT_TOKEN).build()
 
-if not TOKEN or not APP_NAME:
-    logger.error("❌ Встановіть BOT_TOKEN і APP_NAME у змінних середовища!")
-    exit(1)
+# --- FastAPI App ---
+fastapi_app = FastAPI()
 
-# Команда /start
+
+# --- Обробник команди /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Кнопка 1", callback_data="button1")],
-        [InlineKeyboardButton("Кнопка 2", callback_data="button2")],
+        [
+            InlineKeyboardButton("💰 Отримати бонус", callback_data="bonus"),
+            InlineKeyboardButton("📊 Статистика", callback_data="stats"),
+        ],
+        [
+            InlineKeyboardButton("👥 Реферали", callback_data="refs"),
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Привіт! Обери кнопку:", reply_markup=reply_markup)
 
-# Обробка кнопок
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "button1":
-        await query.edit_message_text("Ви натиснули кнопку 1")
-    elif query.data == "button2":
-        await query.edit_message_text("Ви натиснули кнопку 2")
-
-# Основна функція
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    # Додаємо обробники
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    # Ініціалізація застосунку
-    await app.initialize()
-
-    # Встановлення вебхуку
-    await app.bot.set_webhook(f"https://{APP_NAME}/webhook/{TOKEN}")
-    logger.info(f"✅ Webhook URL: https://{APP_NAME}/webhook/{TOKEN}")
-
-    # Запуск сервера
-    await app.start()
-    await app.updater.start_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
+    await update.message.reply_text(
+        "Привіт! Це тестовий бот із кнопками. Вибери дію нижче:",
+        reply_markup=reply_markup
     )
 
-    # Очікування завершення
-    await app.updater.idle()
 
+# --- Обробник Callback-кнопок ---
+@app.callback_query_handler()
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "bonus":
+        await query.edit_message_text("🎁 Ти отримав бонус!")
+    elif query.data == "stats":
+        await query.edit_message_text("📊 Статистика наразі недоступна.")
+    elif query.data == "refs":
+        await query.edit_message_text("👥 У тебе поки немає рефералів.")
+    else:
+        await query.edit_message_text("❓ Невідома дія.")
+
+
+# --- Webhook endpoint ---
+@fastapi_app.post(WEBHOOK_PATH)
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    await app.update_queue.put(data)
+    return {"ok": True}
+
+
+# --- Асинхронна функція запуску ---
+async def main():
+    await app.initialize()
+    await app.bot.set_webhook(WEBHOOK_URL)
+    logger.info(f"✅ Webhook встановлено: {WEBHOOK_URL}")
+    await app.start()
+    await app.updater.start_polling()
+    await app.run_until_disconnected()
+
+
+# --- Запуск FastAPI та Telegram ---
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=PORT)

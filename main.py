@@ -6,7 +6,7 @@ from telegram.ext import (
     filters,
     ConversationHandler
 )
-from handlers import start, ask_name, ask_age, cancel
+
 import os
 
 TOKEN = os.getenv("BOT_TOKEN")

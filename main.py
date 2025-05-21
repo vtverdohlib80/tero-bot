@@ -59,15 +59,14 @@ async def main():
 
     app.add_handler(conv_handler)
 
-    # Webhook URL
-    webhook_url = f"https://{APP_NAME}/webhook/{TOKEN}"
-    print(f"✅ Webhook URL: {webhook_url}")
-
+    # Установка вебхука
     await app.bot.set_webhook(url=webhook_url)
+
+    # Запуск вебхука (БЕЗ webhook_path)
     await app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 10000)),
-        webhook_path=f"/webhook/{TOKEN}",
+        path=f"/webhook/{TOKEN}"  # <- використовуємо 'path', не 'webhook_path'
     )
 
 if __name__ == "__main__":

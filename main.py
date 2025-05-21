@@ -2,12 +2,7 @@ import os
 import logging
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # Логування
 logging.basicConfig(
@@ -16,65 +11,52 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("BOT_TOKEN")  # або встав свій токен сюди рядком
-APP_NAME = os.getenv("APP_NAME")  # https-адреса твого рендера без https://
+# Змінні середовища - встановіть перед запуском
+TOKEN = os.getenv("BOT_TOKEN")      # Ваш Telegram Bot Token
+APP_NAME = os.getenv("APP_NAME")    # Ваш домен без https://, наприклад: tero-bot-33.onrender.com
+PORT = int(os.getenv("PORT", 8443)) # Порт для вебхука (Render автоматично виставляє PORT)
 
-# Обробник команди /start
+if not TOKEN or not APP_NAME:
+    logger.error("Встановіть змінні середовища BOT_TOKEN і APP_NAME!")
+    exit(1)
+
+# Команда /start — показує кнопки
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [
-            InlineKeyboardButton("Кнопка 1", callback_data='btn1'),
-            InlineKeyboardButton("Кнопка 2", callback_data='btn2'),
-        ],
-        [
-            InlineKeyboardButton("Кнопка 3", callback_data='btn3'),
-        ],
+        [InlineKeyboardButton("Кнопка 1", callback_data='button1')],
+        [InlineKeyboardButton("Кнопка 2", callback_data='button2')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Привіт! Оберіть кнопку:", reply_markup=reply_markup)
 
-    await update.message.reply_text(
-        "Привіт! Це тестовий бот з кнопками. Обери кнопку нижче:",
-        reply_markup=reply_markup
-    )
-
-# Обробник натискання кнопок
+# Обробка натискання кнопок
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # підтверджуємо натискання
+    await query.answer()
+    if query.data == 'button1':
+        await query.edit_message_text(text="Ви натиснули кнопку 1")
+    elif query.data == 'button2':
+        await query.edit_message_text(text="Ви натиснули кнопку 2")
 
-    data = query.data
-    if data == 'btn1':
-        text = "Ви натиснули кнопку 1!"
-    elif data == 'btn2':
-        text = "Ви натиснули кнопку 2!"
-    elif data == 'btn3':
-        text = "Ви натиснули кнопку 3!"
-    else:
-        text = "Невідома кнопка."
-
-    await query.edit_message_text(text=text)
-
-# Основна функція запуску бота
 async def main():
-    if not TOKEN or not APP_NAME:
-        logger.error("Встановіть BOT_TOKEN і APP_NAME у змінних середовища!")
-        return
-
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Додаємо обробники
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    webhook_url = f"https://{APP_NAME}/webhook/{TOKEN}"
-    print(f"✅ Webhook URL: {webhook_url}")
-
-    await app.bot.set_webhook(url=webhook_url)
-
-    await app.run_webhook(
+    # Запускаємо вебхук
+    await app.start()
+    await app.updater.start_webhook(
         listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000)),
-        path=f"/webhook/{TOKEN}",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"https://{APP_NAME}/webhook/{TOKEN}"
     )
+    logger.info(f"✅ Webhook URL: https://{APP_NAME}/webhook/{TOKEN}")
+
+    # Чекаємо сигналів для завершення
+    await app.updater.idle()
 
 if __name__ == "__main__":
     asyncio.run(main())

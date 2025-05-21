@@ -1,72 +1,79 @@
 import os
+import logging
 import asyncio
-from telegram import Update, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application,
+    ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
-    ConversationHandler,
-    filters,
 )
 
-# Стани
-ASK_NAME, ASK_AGE = range(2)
+# Логування
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# /start
+TOKEN = os.getenv("BOT_TOKEN")  # або встав свій токен сюди рядком
+APP_NAME = os.getenv("APP_NAME")  # https-адреса твого рендера без https://
+
+# Обробник команди /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привіт! Як тебе звати?")
-    return ASK_NAME
+    keyboard = [
+        [
+            InlineKeyboardButton("Кнопка 1", callback_data='btn1'),
+            InlineKeyboardButton("Кнопка 2", callback_data='btn2'),
+        ],
+        [
+            InlineKeyboardButton("Кнопка 3", callback_data='btn3'),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-# Запит імені
-async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["name"] = update.message.text
-    await update.message.reply_text("Скільки тобі років?")
-    return ASK_AGE
-
-# Запит віку
-async def ask_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = context.user_data.get("name")
-    age = update.message.text
-    await update.message.reply_text(f"Дякую, {name}! Тобі {age} років.")
-    return ConversationHandler.END
-
-# /cancel
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Розмову скасовано.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
-# Основна функція
-async def main():
-    # Дані з Render
-    TOKEN = os.getenv("BOT_TOKEN")  # ОБОВ'ЯЗКОВО додай це до Environment variables на Render
-    APP_NAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")  # Render сам додає цю змінну
-
-    if not TOKEN or not APP_NAME:
-        print("❌ BOT_TOKEN або RENDER_EXTERNAL_HOSTNAME не задано")
-        return
-
-    app = Application.builder().token(TOKEN).build()
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASK_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_age)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
+    await update.message.reply_text(
+        "Привіт! Це тестовий бот з кнопками. Обери кнопку нижче:",
+        reply_markup=reply_markup
     )
 
-    app.add_handler(conv_handler)
+# Обробник натискання кнопок
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # підтверджуємо натискання
 
-    # Установка вебхука
+    data = query.data
+    if data == 'btn1':
+        text = "Ви натиснули кнопку 1!"
+    elif data == 'btn2':
+        text = "Ви натиснули кнопку 2!"
+    elif data == 'btn3':
+        text = "Ви натиснули кнопку 3!"
+    else:
+        text = "Невідома кнопка."
+
+    await query.edit_message_text(text=text)
+
+# Основна функція запуску бота
+async def main():
+    if not TOKEN or not APP_NAME:
+        logger.error("Встановіть BOT_TOKEN і APP_NAME у змінних середовища!")
+        return
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
+    webhook_url = f"https://{APP_NAME}/webhook/{TOKEN}"
+    print(f"✅ Webhook URL: {webhook_url}")
+
     await app.bot.set_webhook(url=webhook_url)
 
-    # Запуск вебхука (БЕЗ webhook_path)
     await app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 10000)),
-        path=f"/webhook/{TOKEN}"  # <- використовуємо 'path', не 'webhook_path'
+        path=f"/webhook/{TOKEN}",
     )
 
 if __name__ == "__main__":
